@@ -1,3 +1,5 @@
+## 热重载原理研究和探索
+
 #### 1. 前言
 
 ------
@@ -10,7 +12,7 @@ Flutter 亚秒级别的热重载是开发者的神兵利器，它能够提供我
 
 ##### JIT
 
-JIT（Just In Time），指的是编译运行时编译，Flutter 在debug模式下采用这种方式，在运行时动态下发和执行代码，启动速度快，但是由于在运行时编译，性能会受影响。
+JIT（Just In Time），指的是运行时编译，Flutter 在debug模式下采用这种方式，在运行时动态下发和执行代码，启动速度快，但是由于在运行时编译，性能会受影响。
 
 ![img](https://pic2.zhimg.com/80/v2-5ac75ecfd558061556120bad41866ddd_1440w.jpg)
 
@@ -28,8 +30,8 @@ AOT（Ahead Of Time），指的是在运行之前进行编译，Flutter 在Relea
 
 1. 扫描修改的文件；
 2. 生成kernal file（app.dill.incremental.dill）；
-3. 通过Http协议下发到dartVM；
-4. VM服务通过RPC 调用_reloadSources，进行资源加载；
+3. 将文件通过Http协议下发到dartVM；
+4. VM服务通过RPC 调用_reloadSources，进行资源重载；
 5. VM 资源加载成功，将FlutterDevice UI线程重置（uiIsolate），通过RPC调用，触发Flutter树的重建、重绘。
 
 如下图形象说明：
@@ -423,7 +425,8 @@ Future<OperationResult> restart({
 
 ​	这个方法主要干了 5件事情
 
-	1. 扫描修改的文件，生成dill文件，并且通过Http服务下发到设备资源文件；
+​	1. 扫描修改的文件，生成dill文件，并且通过Http服务下发到设备资源文件；
+
  	2. RPC 调用_reloadSources 触发VM重新加载修改后的文件
  	3. RPC 调用 flutter View的uiIsolate refreshView
  	4. 删除dirty文件
@@ -485,13 +488,11 @@ Future<OperationResult> restart({
 
 	7. Native code 
 
-    更改原生代码， hot reload 不会生效
+       更改原生代码， hot reload 不会生效
 
 	8. statelessWidget 和 statefulWidget 的互改
 
 	9. 静态变量和全局变量的改变
-
-
 
 ### 参考
 

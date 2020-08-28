@@ -2,7 +2,7 @@
 
 ----
 
-最近项目中在横向滑动的PageViewController（WMScrollViewController）里嵌入了Flutter 的 CustomScrollView，原本会觉得一切ok，却出现了一个致命的问题：安卓嵌入之后滑动流程稳定，没有任何问题，iOS 嵌入之后出现Flutter 页面滑动卡顿、不流畅，体现在触发flutter 列表滑动的同时，会触发原生横滑，且必须垂直滑动（无一点左右的滑动偏移）才会稳定触发Flutter 列表的滑动，否则容易触发左右横滑，所以我们习惯了单手用手机的人，根本无法顺畅滑动。如下面的gif（其实我已经很努力的在上下滑了，很明显上下滑动的距离大于水平滑动的距离，用户的用意也应该是要上下滑动，但是却触发了横滑）：
+最近项目中在横向滑动的PageViewController（WMPageController）里嵌入了Flutter 的 CustomScrollView，原本会觉得一切ok，却出现了一个致命的问题：安卓嵌入之后滑动流程稳定，没有任何问题，iOS 嵌入之后出现Flutter 页面滑动卡顿、不流畅，体现在触发flutter 列表滑动的同时，会触发原生横滑，且必须垂直滑动（无一点左右的滑动偏移）才会稳定触发Flutter 列表的滑动，否则容易触发左右横滑，所以我们习惯了单手用手机的人，根本无法顺畅滑动。如下面的gif（其实我已经很努力的在上下滑了，很明显上下滑动的距离大于水平滑动的距离，用户的用意也应该是要上下滑动，但是却触发了横滑）：
 
 <img src="/Users/ddreader/Desktop/PersionalDEV/HYHKnowledgePoint/自己博客/Flutter/1595228716860927.png" alt="1595228716860927" style="zoom:80%;" />
 
@@ -40,76 +40,83 @@
 
    
 
- 2. 自定义一个继承自FLBFlutterViewContainer的子类，重写Touches方法，在touchBegan方法的时候，我们让自定的ScrollView手势不生效；在touchMoved的时候，我们干预计算触摸方向的识别，如果在纵滑<5 && 横滑大于2的时候我们默认用户想要横滑，故手动改变ScrollView的contentOffset，否则的话手势继续不生效， flutterView 生效；在touchEnd和touchCancel的情况下，我们判断当前的contentOffset，如果距离大于当前页距离的1/3, 跳转到下一页，如果距离小于上一页距离的2/3, 跳转到前一页；负责调整offset回到当前页面的起始位置。
+ 2. 自定义一个继承自FLBFlutterViewContainer的子类，重写Touches方法，在touchBegan方法的时候，我们让自定的ScrollView手势不生效；在touchMoved的时候，我们干预计算触摸方向的识别，如果~~在纵滑<5 && 横滑大于2的时候我们默认用户想要横滑~~ 横滑距离大于纵滑的距离我们认为用户想要横滑(判断横滑距离大于纵滑距离如下代码)，故手动改变ScrollView的contentOffset，否则的话手势继续不生效， flutterView 生效；在touchEnd和touchCancel的情况下，我们判断当前的contentOffset，如果距离大于当前页距离的1/3, 跳转到下一页，如果距离小于上一页距离的2/3, 跳转到前一页；负责调整offset回到当前页面的起始位置。
 
-    ```
+    ```objective-c
     @implementation DDScrollFlutterViewContainer
     
     - (void)viewDidLoad {
         [super viewDidLoad];
      }
     
+    #pragma mark - UITouches
     - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
         [super touchesBegan:touches withEvent:event];
-        [self touchesBegan];
+        [self touchesBegan:touches];
     }
     
     - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-        [super touchesMoved:touches withEvent:event];
-        UITouch *touch = [touches anyObject];
-        [self touchMoveWithTouch:touch];
+        [self touchMoveWithTouch:touches event:event];
     }
     
     - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-        [super touchesEnded:touches withEvent:event];
-        [self touchEnd];
+        [self touchEnd:touches event:event isCanceled:NO];
     }
     
     - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-        [super touchesCancelled:touches withEvent:event];
-        [self touchEnd];
+        [self touchEnd:touches event:event isCanceled:YES];
     }
     
-    - (void)touchesBegan {
-        UIScrollView *superView = (UIScrollView *)self.view.superview;
+    - (void)touchesBegan:(NSSet *)touches {
+        UIScrollView *superView = (UIScrollView *)self.view.superview.superview;
         superView.panGestureRecognizer.enabled = NO;
+        self.hasOffset = NO;
+        self.lastLocation = [touches.anyObject locationInView:self.view];
     }
     
-    - (void)touchMoveWithTouch:(UITouch *)touch {
-        CGPoint previoursLocation = [touch previousLocationInView:self.view];
+    - (void)touchMoveWithTouch:(NSSet *)touches event:(UIEvent *)event{
+        UITouch *touch = [touches anyObject];
+        CGPoint previoursLocation = self.lastLocation;
         CGPoint location = [touch locationInView:self.view];
         CGFloat deltax = fabs(location.x - previoursLocation.x);
         CGFloat deltay = fabs(location.y - previoursLocation.y);
-        UIScrollView *superView = (UIScrollView *)self.view.superview;
-        if (deltax > 2 && deltay <= 5) {
+        UIScrollView *superView = (UIScrollView *)self.view.superview.superview;
+        if (deltax > deltay) {
             CGPoint offset = superView.contentOffset;
-            superView.panGestureRecognizer.enabled = YES;
             [superView.delegate scrollViewWillBeginDragging:superView];
-            [superView setContentOffset:CGPointMake(offset.x - (location.x - previoursLocation.x), offset.y)];
+            CGPoint previours = [touch previousLocationInView:self.view];
+            [superView setContentOffset:CGPointMake(offset.x - (location.x - previours.x), offset.y)];
+            self.hasOffset = YES;
         } else {
-            superView.panGestureRecognizer.enabled = NO;
+            if (!self.hasOffset) {
+                [super touchesMoved:touches withEvent:event];
+            }
         }
     }
     
-    - (void)touchEnd {
-        UIScrollView *superView = (UIScrollView *)self.view.superview;
-        superView.panGestureRecognizer.enabled = YES;
-        CGPoint offset = superView.contentOffset;
-        CGFloat offsetX = offset.x;
-        if (offsetX > (1 * self.view.width+ self.view.width * 1 / 3)) {
-            [superView setContentOffset:CGPointMake(2*self.view.width, offset.y) animated:YES];
-        } else if (offsetX <=  self.view.width * 2 / 3) {
-            [superView setContentOffset:CGPointMake(0, offset.y) animated:YES];
-        } else {
-            [superView setContentOffset:CGPointMake(self.view.width, offset.y) animated:YES];
+    - (void)touchEnd:(NSSet *)touches event:(UIEvent *)event isCanceled:(BOOL)isCanceled {
+        UIScrollView *superView = (UIScrollView *)self.view.superview.superview;
+        if (self.hasOffset) {
+            CGPoint offset = superView.contentOffset;
+            CGFloat offsetX = offset.x;
+            if (offsetX > (1 * self.view.width+ self.view.width * 1 / 3)) {
+                [superView setContentOffset:CGPointMake(2*self.view.width, offset.y) animated:YES];
+            } else if (offsetX <=  self.view.width * 2 / 3) {
+                [superView setContentOffset:CGPointMake(0, offset.y) animated:YES];
+            } else {
+                [superView setContentOffset:CGPointMake(self.view.width, offset.y) animated:YES];
+            }
+            [superView.delegate scrollViewDidEndDecelerating:superView];
+            [self.nextResponder touchesEnded:touches withEvent:event];
         }
-        [superView.delegate scrollViewDidEndDecelerating:superView];
+    isCanceled ? [super touchesCancelled:touches withEvent:event] : [super touchesEnded:touches withEvent:event];
+        superView.panGestureRecognizer.enabled = YES;
     }
     
     
     @end
     ```
-
+    
     
 
 处理之后的效果：
